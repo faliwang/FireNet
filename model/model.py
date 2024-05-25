@@ -151,4 +151,4 @@ class FireNet(BaseE2VID):
 
     def forward(self, event_tensor, prev_states):
         img, states = self.net.forward(event_tensor, prev_states)
-        return img, states
+        return {'image': img, 'state': states}

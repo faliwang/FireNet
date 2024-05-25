@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 # local modules
-from .dataset import DynamicH5Dataset, MemMapDataset, SequenceDataset
+from .dataset import DynamicH5Dataset, MemMapDataset, SequenceDataset, DepthMapDataset
 from utils.data import concatenate_subfolders, concatenate_datasets
 
 class InferenceDataLoader(DataLoader):
@@ -26,7 +26,7 @@ class HDF5DataLoader(DataLoader):
         super().__init__(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=pin_memory)
 
 
-class MemMapDataLoader(DataLoader):
+class DepthMapDataLoader(DataLoader):
     """
     """
     def __init__(self, data_file, batch_size, shuffle=True, num_workers=1,

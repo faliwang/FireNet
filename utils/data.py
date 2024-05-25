@@ -35,10 +35,16 @@ def concatenate_datasets(data_file, dataset_type, dataset_kwargs={}):
     :param sequence_length: Desired length of each sequence
     :return ConcatDataset: concatenated dataset of all data_paths in data_file
     """
-    data_paths = pd.read_csv(data_file, header=None).values.flatten().tolist()
+    data_paths = [os.path.join(data_file, f) for f in sorted(os.listdir(data_file))]
+    data_paths = data_paths[:len(data_paths)//2]
     dataset_list = []
     print('Concatenating {} datasets'.format(dataset_type))
     for data_path in tqdm(data_paths):
+        try:
+            dataset = dataset_type(data_path, **dataset_kwargs)
+        except Exception as e:
+            print(f"There is a problem with {data_path}: {e}")
+            continue
         dataset_list.append(dataset_type(data_path, **dataset_kwargs))
     return ConcatDataset(dataset_list)
 

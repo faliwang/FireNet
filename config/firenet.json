@@ -1,0 +1,112 @@
+{
+    "name": "firenet",
+    "n_gpu": 1,
+    "arch": {
+        "type": "FireNet",
+        "args":{
+            "config": {
+                "num_bins": 5,
+                "skip_type": "sum",
+                "recurrent_block_type": "convgru",
+                "recurrent_blocks": {"resblock": [0,2]},
+                "base_num_channels": 16,
+                "num_residual_blocks": 4,
+                "final_activation": "",
+                "norm": "none"
+            }
+        }
+    },
+    "data_loader": {
+        "type": "DepthMapDataLoader",
+        "args": {
+            "data_file": "/central/groups/ccameras/event_camera/ECOCO/ecoco_depthmaps_test/train",
+            "batch_size": 2,
+            "shuffle": true,
+            "num_workers": 0,
+            "pin_memory": true,
+            "sequence_kwargs": {
+                "sequence_length": 20,
+                "dataset_type": "DepthMapDataset",
+                "proba_pause_when_running": 0.05,
+                "proba_pause_when_paused": 0.9,
+                "normalize_image": false,
+                "noise_kwargs": {
+                    "noise_std":0.1,
+                    "noise_fraction": 1.0
+                },
+                "hot_pixel_kwargs": {
+                    "hot_pixel_std": 0.1,
+                    "max_hot_pixel_fraction": 0.001
+                },
+                "dataset_kwargs": {
+                    "transforms": {
+                        "RandomCrop": {
+                            "size": 112
+                        },
+                        "RandomFlip": {}
+                    },
+                    "num_bins": 5
+                }
+            }
+        }
+    },
+    "valid_data_loader": {
+        "type": "DepthMapDataLoader",
+        "args": {
+            "data_file": "/central/groups/ccameras/event_camera/ECOCO/ecoco_depthmaps_test/validation",
+            "batch_size": 1,
+            "shuffle": false,
+            "num_workers": 0,
+            "pin_memory": true,
+            "sequence_kwargs": {
+                "sequence_length": 100,
+                "dataset_type": "DepthMapDataset",
+                "normalize_image": true,
+                "dataset_kwargs": {
+                    "max_length": 100,
+                    "transforms": {
+                        "CenterCrop": {
+                            "size": 160
+                        }
+                    },
+                    "num_bins": 5
+                }
+            }
+        }
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 0.001,
+            "weight_decay": 0,
+            "amsgrad": false
+        }
+    },
+    "lr_scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 50,
+            "gamma": 1.0
+        }
+    },
+    "loss_ftns": {
+        "perceptual_loss": {
+            "weight": 1.0,
+            "net": "vgg"
+        },
+        "temporal_consistency_loss": {
+            "L0": 10,
+            "weight": 2.0
+        }
+    },
+    "trainer": {
+        "epochs": 1000,
+        "save_dir": "/central/home/fwang/FireNet/results",
+        "save_period": 20,
+        "verbosity": 2,
+        "monitor": "min loss",
+        "num_previews": 4,
+        "val_num_previews": 2,
+        "tensorboard": true
+    }
+}

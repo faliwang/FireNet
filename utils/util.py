@@ -34,6 +34,11 @@ def inf_loop(data_loader):
     for loader in repeat(data_loader):
         yield from loader
 
+def mean(l):
+    return 0 if len(l) == 0 else sum(l) / len(l)
+
+def quick_norm(img):
+    return (img - torch.min(img))/(torch.max(img) - torch.min(img) + 1e-5)
 
 def optimal_crop_size(max_size, max_subsample_factor, safety_margin=0):
     """ Find the optimal crop size for a given max_size and subsample_factor.

@@ -1,8 +1,10 @@
 from torch.utils.data import Dataset
+from PIL import Image
 import numpy as np
 import random
 import torch
 import h5py
+import json
 import os
 # local modules
 from utils.data_augmentation import *
@@ -524,6 +526,222 @@ class MemMapDataset(BaseVoxelDataset):
                 self.sensor_resolution = self.infer_resolution()
                 print("Inferred sensor resolution: {}".format(self.sensor_resolution))
 
+
+class DepthMapDataset(BaseVoxelDataset):
+    """
+    Dataloader for VoxelGrids downloaded from the website
+    """
+    
+    def __init__(self, data_path, transforms={}, sensor_resolution=None, num_bins=5,
+                 voxel_method="between_frames", max_length=None, filter_hot_events=False):
+        """
+        self.transform applies to event voxels, frames and flow.
+        self.vox_transform applies to event voxels only.
+        """
+
+        self.num_bins = num_bins
+        self.data_path = data_path
+        self.sensor_resolution = sensor_resolution
+        self.data_source_idx = -1
+        self.has_flow = False
+        self.channels = self.num_bins
+
+        self.sensor_resolution, self.t0, self.tk, self.num_events, self.frame_ts, self.num_frames = \
+            None, None, None, None, None, None
+
+        self.load_data(data_path)
+
+        if self.sensor_resolution is None or self.has_flow is None or self.t0 is None \
+                or self.tk is None or self.num_events is None or self.frame_ts is None \
+                or self.num_frames is None:
+            raise Exception("Dataloader failed to intialize all required members ({})".format(self.data_path))
+
+        self.num_pixels = self.sensor_resolution[0] * self.sensor_resolution[1]
+        self.duration = self.tk - self.t0
+
+        if filter_hot_events:
+            secs_for_hot_mask = 0.2
+            hot_pix_percent = 0.01
+            hot_num = min(self.find_ts_index(secs_for_hot_mask+self.t0), self.num_events)
+            xs, ys, ts, ps = self.get_events(0, hot_num)
+            self.hot_events_mask = get_hot_event_mask(xs.astype(np.int), ys.astype(np.int), ps, self.sensor_resolution, num_hot=int(self.num_pixels*hot_pix_percent))
+            self.hot_events_mask = np.stack([self.hot_events_mask]*self.channels, axis=2).transpose(2,0,1)
+        else:
+            self.hot_events_mask = np.ones([self.channels, *self.sensor_resolution])
+        self.hot_events_mask = torch.from_numpy(self.hot_events_mask).float()
+
+        self.voxel_method = voxel_method
+
+        if 'LegacyNorm' in transforms.keys() and 'RobustNorm' in transforms.keys():
+            raise Exception('Cannot specify both LegacyNorm and RobustNorm')
+
+        self.normalize_voxels = False
+        for norm in ['RobustNorm', 'LegacyNorm']:
+            if norm in transforms.keys():
+                vox_transforms_list = [eval(t)(**kwargs) for t, kwargs in transforms.items()]
+                del (transforms[norm])
+                self.normalize_voxels = True
+                self.vox_transform = Compose(vox_transforms_list)
+                break
+
+        transforms_list = [eval(t)(**kwargs) for t, kwargs in transforms.items()]
+
+        if len(transforms_list) == 0:
+            self.transform = None
+        elif len(transforms_list) == 1:
+            self.transform = transforms_list[0]
+        else:
+            self.transform = Compose(transforms_list)
+        if not self.normalize_voxels:
+            self.vox_transform = self.transform
+
+        
+    def __len__(self):
+        return self.length
+    
+    def __getitem__(self, index, seed=None):
+        """
+        Get data at index.
+            :param index: index of data
+            :param seed: random seed for data augmentation
+        """
+        assert 0 <= index < self.__len__(), "index {} out of bounds (0 <= x < {})".format(index, self.__len__())
+        seed = random.randint(0, 2 ** 32) if seed is None else seed
+
+        ts_0, ts_k = self.frame_ts[index], self.frame_ts[index+1]
+        voxel = self.filehandle["voxelgrid"][index]
+
+        voxel = self.transform_voxel(voxel, seed).float()
+        dt = ts_k - ts_0
+        if dt == 0:
+            dt = np.array(0.0)
+
+        frame = self.filehandle["images"][index+1]
+        frame = self.transform_frame(frame, seed)
+
+        if self.has_flow:
+            flow = self.filehandle["flow"][index]
+            # convert to displacement (pix)
+            flow = flow * dt
+            flow = self.transform_flow(flow, seed)
+        else:
+            flow = torch.zeros((2, frame.shape[-2], frame.shape[-1]), dtype=frame.dtype, device=frame.device)
+
+        timestamp = torch.tensor(self.frame_ts[index], dtype=torch.float64)
+        item = {'frame': frame,
+                'flow': flow,
+                'events': voxel,
+                'timestamp': timestamp,
+                'data_source_idx': self.data_source_idx,
+                'dt': torch.tensor(dt, dtype=torch.float64)}
+        
+        return item
+
+    def load_data(self, data_path, timestamp_fname="timestamps.npy", image_dir_name="frames",
+                  flow_dir_name="flow", voxelgrid_dir_name="VoxelGrid-betweenframes-5", optic_flow_stamps_fname="optic_flow_stamps.npy",
+                  t_fname="t.npy", xy_fname="xy.npy", p_fname="p.npy"):
+
+        assert os.path.isdir(data_path), '%s is not a valid data_pathectory' % data_path
+
+        data = {"images":[], "flow":[], "voxelgrid":[]}
+        self.has_flow = True
+        image_dir_path = os.path.join(data_path, image_dir_name)
+        for image in sorted(os.listdir(image_dir_path)):
+            if image.endswith('.png'):
+                image_path = os.path.join(image_dir_path, image)
+                image = (np.float32(Image.open(image_path)) / 255)**2.2
+                data["images"].append(image)
+        
+        flow_dir_path = os.path.join(data_path, flow_dir_name)
+        for flow in sorted(os.listdir(flow_dir_path)):
+            if flow.endswith('.npy'):
+                flow_path = os.path.join(flow_dir_path, flow)
+                flow = np.load(flow_path)
+                data["flow"].append(flow)
+        
+        voxelgrid_dir_path = os.path.join(data_path, voxelgrid_dir_name)
+        for voxelgrid in sorted(os.listdir(voxelgrid_dir_path)):
+            if voxelgrid.endswith('.npy'):
+                voxelgrid_path = os.path.join(voxelgrid_dir_path, voxelgrid)
+                voxelgrid = np.load(voxelgrid_path)
+                data["voxelgrid"].append(voxelgrid)
+        
+        
+        data['path'] = data_path
+        try:
+            assert (len(data['images']) == len(data['flow']) + 1 and len(data['voxelgrid']) == len(data['flow']))
+        except Exception:
+            print(f"{data_path} does not have the same number of images {len(data['images'])}, flows {len(data['flow'])}, and voxels {len(data['voxelgrid'])}")
+            min_len = min(len(data['images'])-1, len(data['flow']), len(data['voxelgrid']))
+            data['images'] = data['images'][:min_len+1]
+            data['flow'] = data['flow'][:min_len]
+            data['voxelgrid'] = data['voxelgrid'][:min_len]
+
+        self.num_events = len(data['voxelgrid'])
+        self.num_frames = len(data['images'])
+        self.length = len(data['voxelgrid'])
+
+        # Initialize an empty list to store the data
+        self.frame_ts = []
+
+        # Open and read the file
+        frame_timestep_file = os.path.join(data_path, "frames", "timestamps.txt")
+        with open(frame_timestep_file, 'r') as file:
+            for line in file:
+                # Split the line by spaces
+                parts = line.split()
+                
+                # Convert the parts to the appropriate types
+                ts = float(parts[1])
+                
+                # Append a tuple of (index, value) to the data list
+                self.frame_ts.append(ts)
+            
+        data["index"] = self.frame_ts
+        self.t0, self.tk = self.frame_ts[0], self.frame_ts[-1]
+        
+        params_file = os.path.join(data_path, "frames", "params.json")
+        with open(params_file, 'r') as file:
+            self.config = json.load(file)
+        self.data_source = self.config['data_source']
+        
+        self.sensor_resolution = data["images"][0].shape
+
+        self.filehandle = data
+
+    def find_ts_index(self, timestamp):
+        index = np.searchsorted(self.filehandle["t"], timestamp)
+        return index
+
+    def transform_frame(self, frame, seed):
+        """
+        Augment frame and turn into tensor
+        """
+        frame = torch.from_numpy(frame).float().unsqueeze(0)
+        if self.transform:
+            random.seed(seed)
+            frame = self.transform(frame)
+        return frame
+
+    def transform_voxel(self, voxel, seed):
+        """
+        Augment voxel and turn into tensor
+        """
+        voxel = torch.from_numpy(voxel)
+        if self.vox_transform:
+            random.seed(seed)
+            voxel = self.vox_transform(voxel)
+        return voxel
+
+    def transform_flow(self, flow, seed):
+        """
+        Augment flow and turn into tensor
+        """
+        flow = torch.from_numpy(flow)  # should end up [2 x H x W]
+        if self.transform:
+            random.seed(seed)
+            flow = self.transform(flow, is_flow=True)
+        return flow
 
 class SequenceDataset(Dataset):
     """Load sequences of time-synchronized {event tensors + frames} from a folder."""
