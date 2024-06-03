@@ -5,6 +5,7 @@ import random
 import torch
 import h5py
 import json
+import cv2
 import os
 # local modules
 from utils.data_augmentation import *
@@ -525,6 +526,192 @@ class MemMapDataset(BaseVoxelDataset):
                 data_source = 'unknown'
                 self.sensor_resolution = self.infer_resolution()
                 print("Inferred sensor resolution: {}".format(self.sensor_resolution))
+
+
+class DavisDataset(BaseVoxelDataset):
+    """
+    Dataloader for events from the DAVIS 240C Dataset.
+    (see https://github.com/TimoStoff/event_utils for code to convert datasets)
+    """
+
+    def get_frame(self, index):
+        frame = self.filehandle['images'][index]
+        return frame
+
+    def get_events(self, idx0, idx1):
+        xy = self.filehandle["xy"][idx0:idx1]
+        xs = xy[:, 0].astype(np.float32)
+        ys = xy[:, 1].astype(np.float32)
+        ts = self.filehandle["t"][idx0:idx1]
+        ps = self.filehandle["p"][idx0:idx1] * 2.0 - 1.0
+        return xs, ys, ts, ps
+
+    def load_data(self, data_path,  image_fname="images.txt", event_fname="events.txt"):
+
+        assert os.path.isdir(data_path), '%s is not a valid data_pathectory' % data_path
+
+        data = {"frame_stamps":[], "images":[], "t":[], "xy":[], "p":[]}
+        self.has_flow = False
+        
+        with open(os.path.join(data_path, image_fname), 'r') as file:
+            lines = file.readlines()
+            
+        # Process each line
+        for line in lines:
+            # Split the line into timestamp and filename
+            line = line.strip().split()
+            timestamp = line[0]
+            data["frame_stamps"].append(float(timestamp))
+
+            # Construct the full path to the image file
+            if len(line) > 2:
+                filename = "_".join(line[1:])
+            else:
+                filename = line[1]
+            image_path = os.path.join(data_path, filename)
+            image = (np.float32(Image.open(image_path)) / 255)**2.2
+            data["images"].append(image)
+            
+        data["frame_stamps"] = np.array(data["frame_stamps"])
+        data["images"] = np.array(data["images"])
+            
+        with open(os.path.join(data_path, event_fname), 'r') as file:
+            lines = file.readlines()
+            
+        # Process each line
+        for line in lines:
+            if len(line.strip()) > 0:
+                # Split the line into timestamp and filename
+                t, x, y, p = line.strip().split()
+                data["t"].append(float(t))
+                data["xy"].append([int(x),int(y)])
+                data["p"].append(int(p))
+                
+        data["t"] = np.array(data["t"])
+        data["xy"] = np.array(data["xy"])
+        data["p"] = np.array(data["p"])
+        
+        self.t0, self.tk = data['t'][0], data['t'][-1]
+        self.num_events = len(data['p'])
+        self.num_frames = len(data['images'])
+
+        self.frame_ts = []
+        for ts in data["frame_stamps"]:
+            self.frame_ts.append(ts)
+        data["index"] = self.frame_ts
+
+        self.filehandle = data
+        self.sensor_resolution = self.filehandle["images"][0].shape[:2]
+
+    def find_ts_index(self, timestamp):
+        index = np.searchsorted(self.filehandle["t"], timestamp)
+        return index
+
+
+class HDRDataset(BaseVoxelDataset):
+    """
+    Dataloader for events from the High Speed and HDR Datasets.
+    (see https://github.com/TimoStoff/event_utils for code to convert datasets)
+    """
+
+    def get_frame(self, index):
+        frame = self.filehandle['images'][index][:, :, 0]
+        return frame
+
+    def get_events(self, idx0, idx1):
+        xy = self.filehandle["xy"][idx0:idx1]
+        xs = xy[:, 0].astype(np.float32)
+        ys = xy[:, 1].astype(np.float32)
+        ts = self.filehandle["t"][idx0:idx1]
+        ps = self.filehandle["p"][idx0:idx1]
+        return xs, ys, ts, ps
+
+    def load_data(self, data_path):
+
+        assert os.path.isdir(data_path), '%s is not a valid data_pathectory' % data_path
+
+        data = {"frame_stamps":[], "images":[], "t":[], "xy":[], "p":[]}
+        self.has_flow = False
+        
+        # Extract the last directory name
+        last_directory = os.path.basename(data_path)
+
+        # Append .txt to the directory name
+        filename = f"{last_directory}.txt"
+
+        # Open the .txt file in read mode (or any other mode you need)
+        with open(os.path.join(data_path, filename), 'r') as file:
+            res_x, res_y = file.readline().strip().split()
+            self.sensor_resolution = [int(res_y), int(res_x)]
+        
+        for file in os.listdir(data_path):
+            file_path = os.path.join(data_path, file)
+            if file_path.endswith("mp4"):
+                cap = cv2.VideoCapture(file_path)
+                # Check if video opened successfully
+                if not cap.isOpened():
+                    raise FileNotFoundError(f"can not open {file_path}")
+                
+                # Get the frames per second (FPS)
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                
+                while True:
+                    # Read frame-by-frame
+                    ret, frame = cap.read()
+                    
+                    # If frame is read correctly, ret is True
+                    if not ret:
+                        break
+                    
+                    # Get the timestamp of the current frame
+                    timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+                    
+                    # Resize the frame to the target resolution
+                    resized_frame = cv2.resize(frame, (int(res_x), int(res_y)))
+                    
+                    # Append frame to list
+                    frame = (np.float32(resized_frame) / 255)**2.2
+                    data["images"].append(frame)
+                    data["frame_stamps"].append(timestamp / 1000)
+                
+                # Release the video capture object
+                cap.release()
+                
+            else:
+                with open(file_path, 'r') as file:
+                    lines = file.readlines()
+                
+                for line in lines[1:]:
+                    # Split the line into timestamp and filename
+                    t, x, y, p = line.strip().split()
+                    if int(x) > int(res_x) or int(y) > int(res_y):
+                        print(f"event at ({x}, {y}) out of bound!")
+                    else:
+                        data["t"].append(float(t))
+                        data["xy"].append([int(res_x) -1 - int(x), int(res_y) - 1 - int(y)])
+                        data["p"].append(int(p))
+
+            
+        data["frame_stamps"] = np.array(data["frame_stamps"])
+        data["images"] = np.array(data["images"])                
+        data["t"] = np.array(data["t"])
+        data["xy"] = np.array(data["xy"])
+        data["p"] = np.array(data["p"])
+        
+        self.t0, self.tk = data['t'][0], data['t'][-1]
+        self.num_events = len(data['p'])
+        self.num_frames = len(data['images'])
+
+        self.frame_ts = []
+        for ts in data["frame_stamps"]:
+            self.frame_ts.append(ts)
+        data["index"] = self.frame_ts
+
+        self.filehandle = data
+
+    def find_ts_index(self, timestamp):
+        index = np.searchsorted(self.filehandle["t"], timestamp)
+        return index
 
 
 class DepthMapDataset(BaseVoxelDataset):
