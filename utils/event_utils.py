@@ -358,7 +358,7 @@ def events_to_image_torch(xs, ys, ps,
         mask = torch.where(xs>=clipx, zero_v, ones_v)*torch.where(ys>=clipy, zero_v, ones_v)
 
     img = torch.zeros(img_size).to(device)
-    if interpolation == 'bilinear' and xs.dtype is not torch.long and xs.dtype is not torch.long:
+    if interpolation == 'bilinear' and xs.dtype is not torch.long and ys.dtype is not torch.long:
         pxs = (xs.floor()).float()
         pys = (ys.floor()).float()
         dxs = (xs-pxs).float()
