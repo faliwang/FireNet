@@ -83,37 +83,6 @@ class combined_perceptual_loss():
 
 
 
-class flow_perceptual_loss():
-    def __init__(self, weight=1.0, use_gpu=True):
-        """
-        Flow wrapper for perceptual_loss
-        """
-        self.loss = perceptual_loss(weight=1.0, use_gpu=use_gpu)
-        self.weight = weight
-
-    def __call__(self, pred, target):
-        """
-        pred and target are Tensors with shape N x 2 x H x W
-        PerceptualLoss expects N x 3 x H x W.
-        """
-        dist_x = self.loss(pred[:, 0:1, :, :], target[:, 0:1, :, :], normalize=False)
-        dist_y = self.loss(pred[:, 1:2, :, :], target[:, 1:2, :, :], normalize=False)
-        return (dist_x + dist_y) / 2 * self.weight
-
-
-class flow_l1_loss():
-    def __init__(self, weight=1.0):
-        self.loss = F.l1_loss
-        self.weight = weight
-
-    def __call__(self, pred, target):
-        return self.weight * self.loss(pred, target)
-
-
-# keep for compatibility
-flow_loss = flow_l1_loss
-
-
 class perceptual_loss():
     def __init__(self, weight=1.0, net='alex', use_gpu=True):
         """
