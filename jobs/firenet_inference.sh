@@ -4,7 +4,7 @@
 #SBATCH -A ccameras
 
 #SBATCH --partition=gpu
-#SBATCH --time=3:00:00  # walltime, timeout (if script runs longer than specified, it will timeout). Setting it higher results in lower priority on HPC
+#SBATCH --time=0:30:00  # walltime, timeout (if script runs longer than specified, it will timeout). Setting it higher results in lower priority on HPC
 #SBATCH --ntasks=1   # number of processor cores (i.e. tasks)
 #SBATCH --nodes=1   # number of nodes
 #SBATCH --cpus-per-task=8  # Number of CPUs required per task.
@@ -29,4 +29,8 @@ cd ~/FireNet
 
 # NOTE(@kai): the training_vqgan script already uses cuda by default
 
-python3 train.py --config ./config/firenet_noGH.json
+python3 inference.py \
+    --checkpoint_path /central/groups/ccameras/event_camera/results/models/firenet/0603_011604/checkpoint-epoch970.pth \
+    --events_file_path /central/groups/ccameras/event_camera/Davis/slider_depth \
+    --loader_type Davis \
+    --output_folder results/inference/slider_depth/best
