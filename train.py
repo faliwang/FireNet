@@ -26,6 +26,7 @@ def main(config):
     # build model architecture, then print to console
     model = config.init_obj('arch', module_arch)
     logger.info(model)
+    model.summary()
 
     # init loss classes
     loss_ftns = [getattr(module_loss, loss)(**kwargs) for loss, kwargs in config['loss_ftns'].items()]
