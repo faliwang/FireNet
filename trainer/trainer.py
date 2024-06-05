@@ -187,6 +187,7 @@ class Trainer:
         """
         self.model.eval()
         self.valid_metrics.reset()
+        movie_frames = [] 
         i = 0
         for batch_idx, sequence in enumerate(self.valid_data_loader):
             self.optimizer.zero_grad()
@@ -202,9 +203,15 @@ class Trainer:
                 self.logger.debug(msg)
 
             if batch_idx in self.val_preview_indices and (epoch - 1) % self.save_period == 0:
-                self.preview(sequence, epoch, tag_prefix=f'val_{i}')
+                movie_frame = self.preview(sequence, epoch, tag_prefix=f'val_{i}')
+                if len(movie_frames) < 20:
+                    movie_frames.append(movie_frame)
                 i += 1
 
+        if self.valid_only and (epoch - 1) % self.save_period == 0:
+            movie = torch.cat(movie_frames, dim=1)
+            self.writer.writer.add_video('val_total', movie, global_step=epoch, fps=20)
+        
         return self.valid_metrics.result()
 
     def _progress(self, batch_idx, data_loader):
@@ -273,6 +280,7 @@ class Trainer:
                                   torch.stack(pred_images))
         video_tensor = make_flow_movie(event_previews, pred_images, images, pred_flows, flows)
         self.writer.writer.add_video(f'{tag_prefix}', video_tensor, global_step=epoch, fps=20)
+        return video_tensor
 
     def get_loss_ftn(self, loss_name):
         for loss_ftn in self.loss_ftns:
