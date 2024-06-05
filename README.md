@@ -1,37 +1,53 @@
-### pytorch Implementation of U-Net, R2U-Net, Attention U-Net, Attention R2U-Net
-
-**(This repository is no longer being updated)**
-
-**U-Net: Convolutional Networks for Biomedical Image Segmentation**
-
-https://arxiv.org/abs/1505.04597
-
-**Recurrent Residual Convolutional Neural Network based on U-Net (R2U-Net) for Medical Image Segmentation**
-
-https://arxiv.org/abs/1802.06955
-
-**Attention U-Net: Learning Where to Look for the Pancreas**
-
-https://arxiv.org/abs/1804.03999
-
-**Attention R2U-Net : Just integration of two recent advanced works (R2U-Net + Attention U-Net)**
+# CS166 Final Project: Event Camera Video Reconstruction
 
 
-## U-Net
-![U-Net](/img/U-Net.png)
+# Running with [Anaconda](https://docs.anaconda.com/anaconda/install/)
+```
+cuda_version=11.8
+
+conda create -y -n firenet python=3.9
+conda activate firenet
+conda install -y pytorch torchvision cudatoolkit=$cuda_version -c pytorch
+pip install -r requirements.txt
+```
+
+## Inference
+Download the pretrained models from [here](https://drive.google.com/file/d/1llzI6hvTwV8dvcXP1nLIkGH5l7Hg41Gn/view?usp=sharing).
+
+You can pick any event videos from [DAVIS](https://rpg.ifi.uzh.ch/davis_data.html) and [HDR](https://rpg.ifi.uzh.ch/E2VID.html). If you download from DAVIS, specify the loader type as Davis. If you download from HDR, specify the loader type as HDR.
+
+To estimate reconstruction:
+```
+python inference.py --checkpoint_path <path/to/model.pth> --events_file_path </path/to/events> --loader_type <data tpye> --output_folder </path/to/output/dir>
+```
+For example:
+```
+python inference.py \
+    --checkpoint_path ./checkpoints/checkpoint-epoch970.pth \
+    --events_file_path ./Davis/slider_depth \
+    --loader_type Davis \
+    --output_folder results/inference/slider_depth
+```
 
 
-## R2U-Net
-![R2U-Net](/img/R2U-Net.png)
+## Training dataset
+You will need to generate the training dataset yourself, using ESIM.
+To find out how, please see the [training data generator repo](https://github.com/TimoStoff/esim_config_generator).
 
-## Attention U-Net
-![AttU-Net](/img/AttU-Net.png)
+Or you can download the dataset [here](https://rpg.ifi.uzh.ch/data/E2VID/datasets/ecoco_depthmaps_test.zip).
 
-## Attention R2U-Net
-![AttR2U-Net](/img/AttR2U-Net.png)
+## Training
+To train a model, you need to create a config file (see `config/config.json` for an example).
+In this file, you need to set what model you would like to use, but I only make FireNet work.
+You also need to set the training parameters, the training data, the validation data and the output directory.
+You can then start the training by invoking
 
-## Evaluation
-we just test the models with [ISIC 2018 dataset](https://challenge2018.isic-archive.com/task1/training/). The dataset was split into three subsets, training set, validation set, and test set, which the proportion is 70%, 10% and 20% of the whole dataset, respectively. The entire dataset contains 2594 images where 1815 images were used
-for training, 259 for validation and 520 for testing models.
+```python train.py --config path/to/config```
 
-![evaluation](/img/Evaluation.png)
+If you have a model that would like to keep training from, you can use
+
+```python train.py --config path/to/config --resume /path/to/model.pth```
+
+For example:
+
+```python train.py --config ./config/firenet.json```
