@@ -36,13 +36,14 @@ def make_flow_movie(event_previews, predicted_frames, groundtruth_frames, predic
         voxel = quick_norm(event_previews[i][0, ...]).expand(3, -1, -1)
         pred_frame = quick_norm(predicted_frames[i][0, ...]).expand(3, -1, -1)
         gt_frame = groundtruth_frames[i][0, ...].expand(3, -1, -1)
-        pred_flow_rgb = flow2rgb(flow[0, 0, :, :], flow[0, 1, :, :], max_magnitude)
-        blank = torch.zeros_like(gt_frame)
-        imgs = [voxel, pred_frame, gt_frame, blank, pred_flow_rgb.float()]
-        if groundtruth_flows:
-            gt_flow = groundtruth_flows[i]
-            gt_flow_rgb = flow2rgb(gt_flow[0, 0, :, :], gt_flow[0, 1, :, :], max_magnitude)
-            imgs.append(gt_flow_rgb.float())
+        # pred_flow_rgb = flow2rgb(flow[0, 0, :, :], flow[0, 1, :, :], max_magnitude)
+        # blank = torch.zeros_like(gt_frame)
+        # imgs = [voxel, pred_frame, gt_frame, blank, pred_flow_rgb.float()]
+        # if groundtruth_flows:
+        #     gt_flow = groundtruth_flows[i]
+        #     gt_flow_rgb = flow2rgb(gt_flow[0, 0, :, :], gt_flow[0, 1, :, :], max_magnitude)
+        #     imgs.append(gt_flow_rgb.float())
+        imgs = [voxel, pred_frame, gt_frame]
         movie_frame = utils.make_grid(imgs, nrow=3)
         movie_frames.append(movie_frame)
     return torch.stack(movie_frames, dim=0).unsqueeze(0)
