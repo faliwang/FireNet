@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset
 from PIL import Image
+from tqdm import tqdm
 import numpy as np
 import random
 import torch
@@ -107,7 +108,7 @@ class BaseVoxelDataset(Dataset):
 
     def __init__(self, data_path, transforms={}, sensor_resolution=None, num_bins=5,
                  voxel_method=None, max_length=None, combined_voxel_channels=True,
-                 filter_hot_events=False):
+                 filter_hot_events=False, calibrate=False):
         """
         self.transform applies to event voxels, frames and flow.
         self.vox_transform applies to event voxels only.
@@ -120,6 +121,7 @@ class BaseVoxelDataset(Dataset):
         self.data_source_idx = -1
         self.has_flow = False
         self.channels = self.num_bins if combined_voxel_channels else self.num_bins*2
+        self.calibrate = calibrate
 
         self.sensor_resolution, self.t0, self.tk, self.num_events, self.frame_ts, self.num_frames = \
             None, None, None, None, None, None
@@ -543,7 +545,7 @@ class DavisDataset(BaseVoxelDataset):
         xs = xy[:, 0].astype(np.float32)
         ys = xy[:, 1].astype(np.float32)
         ts = self.filehandle["t"][idx0:idx1]
-        ps = self.filehandle["p"][idx0:idx1] * 2.0 - 1.0
+        ps = self.filehandle["p"][idx0:idx1]
         return xs, ys, ts, ps
 
     def load_data(self, data_path,  image_fname="images.txt", event_fname="events.txt"):
@@ -557,7 +559,7 @@ class DavisDataset(BaseVoxelDataset):
             lines = file.readlines()
             
         # Process each line
-        for line in lines:
+        for line in tqdm(lines):
             # Split the line into timestamp and filename
             line = line.strip().split()
             timestamp = line[0]
@@ -578,14 +580,21 @@ class DavisDataset(BaseVoxelDataset):
         with open(os.path.join(data_path, event_fname), 'r') as file:
             lines = file.readlines()
             
+        if self.calibrate:
+            c, b = self.calibration(lines, data["frame_stamps"], (image.shape[1], image.shape[0]))
+            
         # Process each line
-        for line in lines:
+        for line in tqdm(lines):
             if len(line.strip()) > 0:
                 # Split the line into timestamp and filename
                 t, x, y, p = line.strip().split()
                 data["t"].append(float(t))
                 data["xy"].append([int(x),int(y)])
-                data["p"].append(int(p))
+                p = int(p) * 2.0 - 1.0
+                if self.calibrate:
+                    data["p"].append(p * c[int(x), int(y)] + b[int(x), int(y)])
+                else:
+                    data["p"].append(p)
                 
         data["t"] = np.array(data["t"])
         data["xy"] = np.array(data["xy"])
@@ -606,6 +615,55 @@ class DavisDataset(BaseVoxelDataset):
     def find_ts_index(self, timestamp):
         index = np.searchsorted(self.filehandle["t"], timestamp)
         return index
+    
+    def calibration(self, lines, frame_stamps, resolution):
+        sumE = np.zeros((resolution[0], resolution[1], len(frame_stamps)-1))
+        sumP = np.zeros((resolution[0], resolution[1], len(frame_stamps)-1))
+        
+        t_idx, line_idx = 0, 0
+        while line_idx < len(lines) and t_idx < len(frame_stamps) - 1:
+            t_end = frame_stamps[t_idx+1]
+            t, x, y, p = lines[line_idx].strip().split()
+            if float(t) <= t_end:
+                if int(p) > 0:
+                    sumE[int(x), int(y), t_idx] += 1
+                    sumP[int(x), int(y), t_idx] += 1
+                else:
+                    sumE[int(x), int(y), t_idx] += 1
+                    sumP[int(x), int(y), t_idx] -= 1
+                line_idx += 1
+            else:
+                t_idx += 1
+        
+        # Assuming sumE and sumP are already defined
+        resolution = sumE.shape[:2]
+        n_timestamps = sumE.shape[2]
+
+        M = np.zeros((resolution[0], resolution[1]))
+        D = np.zeros((resolution[0], resolution[1]))
+        
+        for i in tqdm(range(resolution[0] * resolution[1])):
+            x = i // resolution[1]  # Calculate the x index
+            y = i % resolution[1]   # Calculate the y index
+            X = np.vstack([sumE[x,y], np.ones((n_timestamps))]).T
+            m, d = np.linalg.lstsq(X, sumP[x,y], rcond=None)[0]
+            M[x,y], D[x,y] = m, d
+             
+        # Compute the predicted values
+        predicted_sumP = np.einsum('ijk,ij->ijk', sumE, M) + D[..., np.newaxis]
+        
+        # Calculate the root mean squared error
+        squared_diff = (sumP - predicted_sumP) ** 2
+        mean_squared_diff = np.mean(squared_diff, axis=2)
+        rmse = np.sqrt(mean_squared_diff)
+        
+        # Calculate c
+        C = np.median(rmse) / rmse
+
+        # Calculate b
+        B = -C * M
+        
+        return C, B
 
 
 class HDRDataset(BaseVoxelDataset):
@@ -929,6 +987,7 @@ class DepthMapDataset(BaseVoxelDataset):
             random.seed(seed)
             flow = self.transform(flow, is_flow=True)
         return flow
+
 
 class SequenceDataset(Dataset):
     """Load sequences of time-synchronized {event tensors + frames} from a folder."""
