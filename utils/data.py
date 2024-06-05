@@ -36,7 +36,7 @@ def concatenate_datasets(data_file, dataset_type, dataset_kwargs={}):
     :return ConcatDataset: concatenated dataset of all data_paths in data_file
     """
     data_paths = [os.path.join(data_file, f) for f in sorted(os.listdir(data_file))]
-    data_paths = data_paths[:len(data_paths)//2]
+    # data_paths = data_paths[:len(data_paths)//2]
     dataset_list = []
     print('Concatenating {} datasets'.format(dataset_type))
     for data_path in tqdm(data_paths):
