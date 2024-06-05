@@ -161,6 +161,7 @@ def torch2cv2(image):
     """convert torch tensor to format compatible with cv2.imwrite"""
     image = torch.squeeze(image)  # H x W
     image = image.cpu().numpy() 
+    image = image / np.max(image)
     image = np.clip(image, 0, 1)
     return (image * 255).astype(np.uint8)
 
