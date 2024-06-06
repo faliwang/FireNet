@@ -14,7 +14,7 @@ pip install -r requirements.txt
 ## Inference
 Download the pretrained models from [here](https://drive.google.com/file/d/1llzI6hvTwV8dvcXP1nLIkGH5l7Hg41Gn/view?usp=sharing).
 
-You can pick any event videos from [DAVIS](https://rpg.ifi.uzh.ch/davis_data.html) and [HDR](https://rpg.ifi.uzh.ch/E2VID.html). If you download from DAVIS, specify the loader type as Davis. If you download from HDR, specify the loader type as HDR.
+You can pick any event videos from [DAVIS](https://rpg.ifi.uzh.ch/davis_data.html) and [HDR](https://rpg.ifi.uzh.ch/E2VID.html). If you download from DAVIS, specify the loader type as Davis. If you download from HDR, specify the loader type as HDR. Make sure to put the events and video/images in the same folder to assure the inference works.
 
 To estimate reconstruction:
 ```
